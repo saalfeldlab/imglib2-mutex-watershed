@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<version>27.0.1</version>
+		<groupId>org.scijava</groupId>
+		<artifactId>pom-scijava</artifactId>
+	</parent>
+
+	<groupId>org.janelia.saalfeldlab</groupId>
+	<artifactId>imglib2-mutex-watershed</artifactId>
+	<version>0.1.0-SNAPSHOT</version>
+
+	<name>ImgLib2 Mutex Watersheds</name>
+	<description>ImgLib2 Implementation of ImgLib2 mutex watersheds</description>
+	<url>https://github.com/saalfeldlab/imglib2-mutex-watershed</url>
+	<inceptionYear>2019</inceptionYear>
+	<organization>
+		<name>HHMI Janelia</name>
+		<url>https://janelia.org</url>
+	</organization>
+	<licenses>
+		<license>
+			<name>Simplified BSD License</name>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<properties>
+		<scijava.jvm.version>1.8</scijava.jvm.version>
+		<license.licenseName>bsd_2</license.licenseName>
+		<license.copyrightOwners>Philipp Hanslovsky, Stephan Saalfeld</license.copyrightOwners>
+
+		<!-- NB: Deploy releases to the SciJava Maven repository. -->
+		<releaseProfiles>deploy-to-scijava</releaseProfiles>
+
+		<kotlin.compiler.jvmTarget>1.8</kotlin.compiler.jvmTarget>
+		<kotlin.version>1.3.50</kotlin.version>
+		<package-name>org.janelia.saalfeldlab.imglib2.mutex</package-name>
+
+		<!-- kotlin incremental compilation. -->
+		<kotlin.compiler.incremental>true</kotlin.compiler.incremental>
+
+		<!-- junit -->
+		<junit.version>4.13-beta-3</junit.version>
+
+	</properties>
+
+	<developers>
+		<developer>
+			<id>hanslovsky</id>
+			<name>Philipp Hanslovsky</name>
+			<email>hanslovskyp@janelia.hhmi.org</email>
+			<url />
+			<organization>HHMI Janelia</organization>
+			<organizationUrl>http://janelia.org/</organizationUrl>
+			<roles>
+				<role>founder</role>
+				<role>lead</role>
+				<role>developer</role>
+				<role>maintainer</role>
+			</roles>
+			<timezone>-5</timezone>
+		</developer>
+	</developers>
+
+	<contributors>
+		   <contributor>
+				   <name>none</name>
+		   </contributor>
+	</contributors>
+
+
+	<mailingLists>
+		<mailingList>
+			<name>ImageJ Forum</name>
+			<archive>https://image.sc</archive>
+		</mailingList>
+	</mailingLists>
+
+	<issueManagement>
+		<system>GitHub</system>
+		<url>https://github.com/saalfeldlab/imglib2-mutex-watershed/issues</url>
+	</issueManagement>
+
+
+	<ciManagement>
+		<system>Travis CI</system>
+		<url>https://travis-ci.com/saalfeldlab/imglib2-mutex-watershed</url>
+	</ciManagement>
+
+	<scm>
+		<connection>scm:git:git://github.com/saalfeldlab/imglib2-mutex-watershed</connection>
+		<developerConnection>scm:git:git@github.com:saalfeldlab/imglib2-mutex-watershed.git</developerConnection>
+		<tag>HEAD</tag>
+		<url>https://github.com/saalfeldlab/imglib2-mutex-watershed</url>
+	</scm>
+
+	<repositories>
+		<repository>
+			<id>scijava.public</id>
+			<url>https://maven.scijava.org/content/groups/public</url>
+		</repository>
+	</repositories>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.jetbrains.kotlin</groupId>
+			<artifactId>kotlin-stdlib-jdk8</artifactId>
+			<version>${kotlin.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2-algorithm</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>net.sf.trove4j</groupId>
+			<artifactId>trove4j</artifactId>
+		</dependency>
+
+		<!--	logging-->
+		<!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-simple</artifactId>
+			<version>${slf4j.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.jetbrains.kotlin</groupId>
+			<artifactId>kotlin-test-junit</artifactId>
+			<version>${kotlin.version}</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<!--NB: No need to add kotlin maven plugin because pom-scijava activates kotlin profile automatically when src/main/kotlin exists -->
+	<!--https://github.com/scijava/pom-scijava-base/blob/1efafea6d2aa51a9e7561f13df592e3d495097f8/pom.xml#L1210-L1212 -->
+
+</project>
