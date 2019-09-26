@@ -10,7 +10,7 @@ class IntArrayExtensions {
 
     companion object {
 
-        fun IntArray.quicksortBy(values: (Int) -> Double) = quicksortIndices(this, object : Values {
+        fun IntArray.quicksortBy(values: (Int) -> Double) = quicksortBy(object : Values {
             override fun get(index: Int) = values(index)
         } )
 

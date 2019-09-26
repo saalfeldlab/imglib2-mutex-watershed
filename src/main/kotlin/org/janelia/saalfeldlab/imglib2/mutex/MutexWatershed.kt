@@ -8,12 +8,14 @@ class MutexWatershed {
     companion object {
         // check https://github.com/constantinpape/affogato/blob/edf9856899999aa3d0daf630ee67f8b5fb33a3cb/include/affogato/segmentation/mutex_watershed.hxx#L81
         @JvmStatic
+        @JvmOverloads
         fun computeMutexWatershedClustering(
                 numLabels: Int,
                 edges: EdgeArray,
                 mutexEdges: EdgeArray,
                 edgeWeights: DoubleArray,
-                mutexEdgeWeights: DoubleArray): UnionFind {
+                mutexEdgeWeights: DoubleArray,
+                mutexStorage: MutexStorage = MutexStorageArray(numLabels)): UnionFind {
             require(edges.size == edgeWeights.size) { "Edges and edge weights do not have the same size: ${edges.size} != ${edgeWeights.size}" }
             require(mutexEdges.size == mutexEdgeWeights.size) { "Mutex edges and mutex edge weights do not have the same size: ${mutexEdges.size} != ${mutexEdgeWeights.size}" }
 
@@ -24,8 +26,6 @@ class MutexWatershed {
 
             val indices = IntArray(numEdges + numMutex) { it }
             with (IntArrayExtensions) { indices.quicksortBy { - if (it < numEdges) edgeWeights[it] else mutexEdgeWeights[it - numEdges] } }
-
-            val mutexStorage = MutexStorageHashMap()
 
             for (edgeId in indices) {
                 val isMutexEdge = edgeId >= numEdges

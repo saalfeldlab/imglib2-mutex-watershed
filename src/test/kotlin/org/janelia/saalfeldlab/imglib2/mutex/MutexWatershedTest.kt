@@ -23,16 +23,35 @@ class MutexWatershedTest {
 
         val mutexEdgeWeights = doubleArrayOf(5.0)
 
-        val uf = MutexWatershed.computeMutexWatershedClustering(
-                4,
-                edges,
-                mutexEdges,
-                edgeWeights,
-                mutexEdgeWeights)
+        // with array store
+        run {
+            val uf = MutexWatershed.computeMutexWatershedClustering(
+                    4,
+                    edges,
+                    mutexEdges,
+                    edgeWeights,
+                    mutexEdgeWeights,
+                    MutexStorageArray(4))
 
-        val indices = with (UnionFindExtensions) { uf.label(4) }
+            val indices = with (UnionFindExtensions) { uf.label(4) }
 
-        Assert.assertArrayEquals(longArrayOf(0, 0, 0, 3), indices)
+            Assert.assertArrayEquals(longArrayOf(0, 0, 0, 3), indices)
+        }
+
+        // with hash map store
+        run {
+            val uf = MutexWatershed.computeMutexWatershedClustering(
+                    4,
+                    edges,
+                    mutexEdges,
+                    edgeWeights,
+                    mutexEdgeWeights,
+                    MutexStorageHashMap())
+
+            val indices = with (UnionFindExtensions) { uf.label(4) }
+
+            Assert.assertArrayEquals(longArrayOf(0, 0, 0, 3), indices)
+        }
 
     }
 
@@ -75,6 +94,7 @@ class MutexWatershedTest {
         val edges = EdgeArray().also { e -> nearestNeighborEdges.forEach { e.addEdge(it.first.first.toLong(), it.first.second.toLong()) } }
         val edgeWeights = nearestNeighborEdges.map { it.second }.toDoubleArray()
 
+        // with array store
         Assert.assertEquals(
                 1,
                 MutexWatershed.computeMutexWatershedClustering(
@@ -82,27 +102,42 @@ class MutexWatershedTest {
                         edges,
                         EdgeArray(),
                         edgeWeights,
-                        doubleArrayOf()).setCount())
+                        doubleArrayOf(),
+                        MutexStorageArray(nodes.size)).setCount())
+
+        // with hash map store
+        Assert.assertEquals(
+                1,
+                MutexWatershed.computeMutexWatershedClustering(
+                        nodes.size,
+                        edges,
+                        EdgeArray(),
+                        edgeWeights,
+                        doubleArrayOf(),
+                        MutexStorageHashMap()).setCount())
 
 
         val mutexEdges = EdgeArray().also { e -> longDistanceEdges.forEach { e.addEdge(it.first.first.toLong(), it.first.second.toLong()) } }
         val mutexEdgeWeights = longDistanceEdges.map { it.second }.toDoubleArray()
 
-        val uf = MutexWatershed.computeMutexWatershedClustering(
-                nodes.size,
-                edges,
-                mutexEdges,
-                edgeWeights,
-                mutexEdgeWeights)
+        for (store in listOf(MutexStorageArray(nodes.size), MutexStorageHashMap())) {
+            val uf = MutexWatershed.computeMutexWatershedClustering(
+                    nodes.size,
+                    edges,
+                    mutexEdges,
+                    edgeWeights,
+                    mutexEdgeWeights,
+                    store)
 
-        Assert.assertEquals(nodes.size.toLong(), uf.size())
-        Assert.assertEquals(groundTruthLabeling.distinct().size.toLong(), uf.setCount())
+            Assert.assertEquals(nodes.size.toLong(), uf.size())
+            Assert.assertEquals(groundTruthLabeling.distinct().size.toLong(), uf.setCount())
 
-        val labeled = with (UnionFindExtensions) { uf.label(nodes.size) }
+            val labeled = with(UnionFindExtensions) { uf.label(nodes.size) }
 
-        val labelMapping = mapOf(Pair(labeled[0], 1L), Pair(labeled[2], 2L), Pair(labeled[3], 3L))
-        val relabeled = labeled.map { labelMapping[it]!! }.toLongArray()
-        Assert.assertArrayEquals(relabeled, groundTruthLabeling)
+            val labelMapping = mapOf(Pair(labeled[0], 1L), Pair(labeled[2], 2L), Pair(labeled[3], 3L))
+            val relabeled = labeled.map { labelMapping[it]!! }.toLongArray()
+            Assert.assertArrayEquals(relabeled, groundTruthLabeling)
+        }
 
     }
 
