@@ -50,10 +50,7 @@ class MutexStorageHashMap : MutexStorage {
 
         val merged = with(TLongListExtensions) { listFrom.merge(listTo) }
 
-
-
         mutexes.put(rootTo, merged)
-        listFrom.clear()
     }
 
 }

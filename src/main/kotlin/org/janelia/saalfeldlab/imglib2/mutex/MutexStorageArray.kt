@@ -50,7 +50,6 @@ class MutexStorageArray(numNodes: Int) : MutexStorage {
 
 
         mutexes[rootTo.toInt()] = merged
-        listFrom.clear()
     }
 
 }
