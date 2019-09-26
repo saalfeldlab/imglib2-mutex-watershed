@@ -24,8 +24,17 @@ class MutexWatershed {
             val numEdges = edges.size
             val numMutex = mutexEdges.size
 
+            println("Quick sorting $numEdges edges by weight (descending)")
+
             val indices = IntArray(numEdges + numMutex) { it }
-            with (IntArrayExtensions) { indices.quicksortBy { - if (it < numEdges) edgeWeights[it] else mutexEdgeWeights[it - numEdges] } }
+            with (IntArrayExtensions) {
+                indices.quicksortBy(object : IntArrayExtensions.Values {
+                    override fun get(index: Int): Double = - if (index < numEdges) edgeWeights[index] else mutexEdgeWeights[index - numEdges]
+                })
+            }
+//            with (IntArrayExtensions) { indices.quicksortBy { - if (it < numEdges) edgeWeights[it] else mutexEdgeWeights[it - numEdges] } }
+
+            println("USING MUTEX STORAGE ${mutexStorage::class}")
 
             for (edgeId in indices) {
                 val isMutexEdge = edgeId >= numEdges

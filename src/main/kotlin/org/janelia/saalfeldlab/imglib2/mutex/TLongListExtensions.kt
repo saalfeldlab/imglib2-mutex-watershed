@@ -28,10 +28,12 @@ class TLongListExtensions {
             this.add(value)
         }
 
-        fun TLongList.merge(that: TLongList): TLongList {
+        fun TLongList.merge(that: TLongList) = merge(that, into = TLongArrayList(max(this.size(), that.size())))
+
+        fun <L: TLongList> TLongList.merge(that: TLongList, into: L): L {
             // https://github.com/constantinpape/affogato/blob/master/include/affogato/segmentation/mutex_watershed.hxx#L70-L72
             // Why use std::merge here over std::union or even just manually create a sorted union?
-            val merged = TLongArrayList(max(this.size(), that.size()))
+//            val into = TLongArrayList(max(this.size(), that.size()))
 
             var indexThis = 0
             var indexThat = 0
@@ -42,21 +44,20 @@ class TLongListExtensions {
             while (indexThis < sizeThis) {
                 if (indexThat == sizeThat) {
                     while (indexThis < sizeThis)
-                        merged += this[indexThis++]
+                        into += this[indexThis++]
                     break
                 }
 
                 if (that[indexThat] < this[indexThis])
-                    merged += that[indexThat++]
+                    into += that[indexThat++]
                 else
-                    merged += this[indexThis++]
+                    into += this[indexThis++]
             }
 
             while (indexThat < sizeThat)
-                merged += that[indexThat++]
+                into += that[indexThat++]
 
-            return merged
-
+            return into
         }
     }
 }
