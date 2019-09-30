@@ -7,10 +7,6 @@ private typealias ArrayStore = Array<TLongArrayList?>
 
 class MutexStorageArray(numNodes: Int) : MutexStorage {
 
-    init {
-        println("LOL WAT numNodes=$numNodes")
-    }
-
     private val mutexes = ArrayStore(numNodes) { null }
 
     private val listCache = ArrayDeque<TLongArrayList>(10000)

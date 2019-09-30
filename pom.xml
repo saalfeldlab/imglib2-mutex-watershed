@@ -126,6 +126,12 @@
 			<artifactId>trove4j</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>it.unimi.dsi</groupId>
+			<artifactId>fastutil</artifactId>
+			<version>8.3.0</version>
+		</dependency>
+
 		<!--	logging-->
 		<!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
 		<dependency>
