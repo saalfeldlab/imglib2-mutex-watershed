@@ -87,7 +87,7 @@
 
 	<ciManagement>
 		<system>Travis CI</system>
-		<url>https://travis-ci.com/saalfeldlab/imglib2-mutex-watershed</url>
+		<url>https://travis-ci.org/saalfeldlab/imglib2-mutex-watershed</url>
 	</ciManagement>
 
 	<scm>
