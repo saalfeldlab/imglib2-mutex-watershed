@@ -77,7 +77,7 @@ class MutexWatershed {
         }
 
         // any NaN edge will be ignored
-        fun <T, I> computeMutexWatershedClustering(
+        fun <T, I> computeMutexWatershedClusteringFromOffset(
             affinities: RandomAccessibleInterval<T>,
             target: RandomAccessibleInterval<I>,
             offsets: Array<LongArray>,
