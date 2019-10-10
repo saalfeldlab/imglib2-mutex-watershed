@@ -202,6 +202,9 @@ class MutexWatershed {
             val numEdges = edges.size
             val numMutex = mutexEdges.size
 
+            if (numEdges == 0)
+                return uf
+
             val indices = IntArray(numEdges + numMutex) { it }
             with(IntArrayExtensions) {
                 indices.quicksortBy(object : IntArrayExtensions.Values {
