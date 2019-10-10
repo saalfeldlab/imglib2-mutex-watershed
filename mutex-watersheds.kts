@@ -14,6 +14,7 @@
 import java.lang.Thread
 import java.util.Arrays
 import java.util.function.DoublePredicate
+import java.util.function.DoubleSupplier
 
 import kotlin.random.Random
 
@@ -45,7 +46,7 @@ val resolution    = doubleArrayOf(108.0, 108.0, 120.0)
 // val blockSize     = intArrayOf(192, 192, 128)
 // val blockMin      = longArrayOf(256, 256, 256)
 // val blockMax      = LongArray(blockMin.size) { blockMin[it] + blockSize[it] - 1 }
-val margin        = longArrayOf(450, 450, 150)
+val margin        = longArrayOf(550, 550, 200)
 val blockMin      = LongArray(3) { affinities.min(it) + margin[it] }
 val blockMax      = LongArray(3) { affinities.max(it) - margin[it] }
 val blockSize     = LongArray(3) { blockMax[it] - blockMin[it] + 1 }
@@ -83,51 +84,17 @@ val numNodes       = currentIndex
 val targetExtended = Views.extendValue(target, LongType(-1))
 val rng            = Random(seed = 100L)
 
-for ((index, offset) in offsets.withIndex()) {
-        val block          = affinities[SL, SL, SL, index][FinalInterval(blockMin, blockMax)].zeroMin()
-        val affinityCursor = block.flatIterable().cursor()
-        val fromCursor     = target.flatIterable().cursor()
-        val toTarget       = targetExtended[Intervals.translate(target, *offset)]
-        val toCursor       = toTarget.flatIterable().cursor()
-        val isNearest      = offset.any { it == -1L }
-        val probability    = probabilities[index]
-        val edgeReject     = if (probability < 0.0 || probability == 1.0) DoublePredicate { it.isNaN() } else DoublePredicate { it.isNaN() || rng.nextDouble() >= probability  }
-        val isAttractive   = DoublePredicate { isNearest } // use this line to use only nearest neighbor edges for attractive
-        // val isAttractive   = DoublePredicate { isNearest || it >= 0.5 } // use this line to "threshold" at 0.5 do decide if edge is attractive
+println("Computing mutex watershed for dataset of size ${target}")
 
-        if (probability == 0.0) continue
+val nextId = MutexWatershed.computeMutexWatershedClustering(
+        affinities        = affinities[Intervals.createMinMax(blockMin[0], blockMin[1], blockMin[2], 0, blockMax[0], blockMax[1], blockMax[2], offsets.size.toLong() - 1)],
+        target            = target,
+        offsets           = offsets.toTypedArray(),
+        edgeProbabilities = probabilities,
+        threshold         = 0.5,
+        random            = DoubleSupplier { rng.nextDouble() })
 
-        println("Collecting edges and weights for offset=${Arrays.toString(offset)}")
-        while (toCursor.hasNext()) {
-                val affinity = affinityCursor.next().realDouble
-                val from     = fromCursor.next().integerLong
-                val to       = toCursor.next().integerLong
-
-                if (edgeReject.test(affinity) || to < 0 || from < 0)
-                        continue
-
-                if (isAttractive.test(affinity)) {
-                        edges.addEdge(from, to)
-                        edgeWeights.add(affinity)
-                } else {
-                        mutexEdges.addEdge(from, to)
-                        mutexEdgeWeights.add(1.0 - affinity)
-                }
-        }
-}
-
-println("Num edges: ${edgeWeights.size()} and num mutex edges: ${mutexEdgeWeights.size()}")
-
-val uf = MutexWatershed.computeMutexWatershedClustering(
-        numLabels        = numNodes.toInt(),
-        edges            = edges,
-        mutexEdges       = mutexEdges,
-        edgeWeights      = edgeWeights.toArray(),
-        mutexEdgeWeights = mutexEdgeWeights.toArray())
-
-target.forEach { it.setInteger(uf.findRoot(it.integerLong)) }
-
-println("Saving mutex watershed in dataset `mutex-watershed'")
+println("Saving mutex watershed in dataset `mutex-watershed'. Max id=${nextId-1}")
 
 N5Utils.save(target, container, "mutex-watershed", intArrayOf(64, 64, 64), GzipCompression())
 
