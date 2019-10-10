@@ -37,9 +37,9 @@ fun main() {
 
     val defaultProbability = 0.05
     val probability1 = 1.0
-    val probability2 = 0.0
-    val probability5 = 0.05
-    val probability10 = 0.0
+    val probability2 = defaultProbability
+    val probability5 = defaultProbability
+    val probability10 = defaultProbability
 
     val probabilities = doubleArrayOf(
         probability1, probability2, probability5, probability10,
@@ -58,7 +58,9 @@ fun main() {
         target            = target,
         offsets           = offsets.toTypedArray(),
         edgeProbabilities = probabilities,
-        threshold         = 0.5,
+        // use either attractiveEdges or threshold
+        attractiveEdges   = offsets.map { o -> o.map { it*it }.sum() <= 1L }.toBooleanArray(),
+//        threshold         = 0.5
         random            = DoubleSupplier { rng.nextDouble() })
 
     println("Saving mutex watershed in dataset `mutex-watershed'. Max id=${nextId-1}")
