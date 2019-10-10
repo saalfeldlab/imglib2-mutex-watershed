@@ -34,6 +34,8 @@ class MutexWatershed {
 
         private val LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass())
 
+        @JvmOverloads
+        @JvmStatic
         // any NaN edge will be ignored
         fun <T, I> computeMutexWatershedClustering(
             affinities: RandomAccessibleInterval<T>,
@@ -55,6 +57,8 @@ class MutexWatershed {
                 random = random)
         }
 
+        @JvmOverloads
+        @JvmStatic
         // any NaN edge will be ignored
         fun <T, I> computeMutexWatershedClustering(
             affinities: RandomAccessibleInterval<T>,
@@ -76,6 +80,8 @@ class MutexWatershed {
                 random = random)
         }
 
+        @JvmOverloads
+        @JvmStatic
         // any NaN edge will be ignored
         fun <T, I> computeMutexWatershedClusteringFromOffset(
             affinities: RandomAccessibleInterval<T>,
@@ -95,6 +101,8 @@ class MutexWatershed {
             isAttractiveOffsetGenerator = IsAttractiveIndex { isAttractiveOffsetGenerator.apply(offsets[it]) },
             random = random)
 
+        @JvmOverloads
+        @JvmStatic
         // any NaN edge will be ignored
         fun <T, I> computeMutexWatershedClustering(
             affinities: RandomAccessibleInterval<T>,
