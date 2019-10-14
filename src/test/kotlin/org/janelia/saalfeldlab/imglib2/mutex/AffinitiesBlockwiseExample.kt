@@ -1,7 +1,6 @@
 package org.janelia.saalfeldlab.imglib2.mutex
 
 import gnu.trove.map.TLongLongMap
-import gnu.trove.map.TLongObjectMap
 import gnu.trove.map.hash.TLongLongHashMap
 import gnu.trove.map.hash.TLongObjectHashMap
 import net.imglib2.FinalInterval
@@ -17,6 +16,7 @@ import net.imglib2.imklib.extensions.iterable
 import net.imglib2.imklib.extensions.maxAsLongs
 import net.imglib2.imklib.extensions.minAsLongs
 import net.imglib2.loops.LoopBuilder
+import net.imglib2.type.NativeType
 import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.integer.UnsignedLongType
 import net.imglib2.type.numeric.real.FloatType
@@ -24,24 +24,61 @@ import net.imglib2.util.ConstantUtils
 import net.imglib2.util.Intervals
 import net.imglib2.util.Util
 import net.imglib2.view.Views
-import org.janelia.saalfeldlab.n5.DataType
-import org.janelia.saalfeldlab.n5.DatasetAttributes
-import org.janelia.saalfeldlab.n5.GzipCompression
-import org.janelia.saalfeldlab.n5.N5FSWriter
+import org.janelia.saalfeldlab.n5.*
 import org.janelia.saalfeldlab.n5.imglib2.N5Utils
-import java.util.*
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.function.BiConsumer
 import java.util.function.DoubleSupplier
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
 
+
+@ExperimentalTime
 fun main() {
-    val containerPath = "/home/hanslovskyp/workspace/mutex-watershed/mutex-watershed-notebook/sample_A.n5"
+    val samples = arrayOf("A", "B", "C", "0", "1", "2").reversedArray()
+    val setups = intArrayOf(0, 3)
+    val thresholds = arrayOf(0.5, null)
+    val numThreads = 40
+    val es = Executors.newFixedThreadPool(numThreads)
+
+    for (setup in setups)
+        for (threshold in thresholds)
+            for (sample in samples) {
+                val time = measureTime { runMutexWatersheds(sample, setup, threshold, es) }
+                println("Ran mutex watersheds for sample=$sample setup=$setup threshold=$threshold in ${time.inSeconds} seconds")
+            }
+
+    es.shutdown()
+
+}
+
+fun runMutexWatersheds(
+    sample: String,
+    setup: Int,
+    threshold: Double?,
+    es: ExecutorService
+) {
+    val datasetBasePath = "volumes/predictions/neuron_ids-unlabeled-unmask-background/$setup/500000"
+
+    val containerPath = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
     val container     = N5FSWriter(containerPath)
-    val dataset       = "affinities"
+    val dataset       = "$datasetBasePath/affinities"
+
+    val gliaMaskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val gliaMaskContainer = N5FSReader(gliaMaskContainerPath ?: containerPath)
+    val gliaMaskDataset: String? = "$datasetBasePath/glia"
+
+    val maskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val maskContainer = N5FSReader(maskContainerPath ?: containerPath)
+    val maskDataset: String? = "volumes/masks/prediction-mask"
+
+    val outputContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val outputContainer = N5FSWriter(outputContainerPath ?: containerPath)
 
     val affinities= N5Utils.open<FloatType>(container, dataset)
 //             unccomment the following for subset of image:
@@ -49,22 +86,33 @@ fun main() {
 //                it[Intervals.createMinMax(0L, 0L, 0L, it.min(3), 768L, 768L, 512L, it.max(3))]
 //            }
     // TODO load actual mask and glia mask
-    val gliaMask = ConstantUtils.constantRandomAccessible(FloatType(0.0f), 3)
-    val marginLower = intArrayOf(128, 128, 128)
-    val marginUpper = intArrayOf(256, 256, 128)
-    val validMin = LongArray(3) { affinities.min(it) + marginLower[it] }
-    val validMax = LongArray(3) { affinities.max(it) - marginUpper[it] }
-    val validInterval = FinalInterval(validMin, validMax)
-    val mask = Views.extendZero(ConstantUtils.constantRandomAccessibleInterval(
-            UnsignedLongType(1),
-            validInterval.numDimensions(),
-            validInterval))
+    val gliaMask = gliaMaskDataset
+        ?.takeIf { gliaMaskContainer.datasetExists(it) }
+        ?.let { gliaMaskContainer.loadWithOffset<FloatType>(gliaMaskDataset) }
+        ?.let { Views.extendZero(it) }
+        ?: ConstantUtils.constantRandomAccessible(FloatType(0.0f), 3)
+    val mask = maskDataset
+        ?.takeIf { maskContainer.datasetExists(it) }
+        ?.let { maskContainer.loadWithOffset<UnsignedLongType>(maskDataset) }
+        ?.let{ Views.extendZero(it) }
+        ?: run {
+            val marginLower = intArrayOf(128, 128, 128)
+            val marginUpper = intArrayOf(256, 256, 128)
+            val validMin = LongArray(3) { affinities.min(it) + marginLower[it] }
+            val validMax = LongArray(3) { affinities.max(it) - marginUpper[it] }
+            val validInterval = FinalInterval(validMin, validMax)
+            Views.extendZero(
+                ConstantUtils.constantRandomAccessibleInterval(
+                    UnsignedLongType(1),
+                    validInterval.numDimensions(),
+                    validInterval
+                )
+            )
+        }
     val resolution = doubleArrayOf(108.0, 108.0, 120.0)
     val blockSize = IntArray(3) {64}
     val blocksPerTask = intArrayOf(1, 1, 1)
     val taskSize = IntArray(3) {blockSize[it] * blocksPerTask[it]}
-    val numThreads = 8
-    val es = Executors.newFixedThreadPool(numThreads)
 
     val offsets       = arrayOf(
         longArrayOf(-1, 0, 0), longArrayOf(-2, 0, 0), longArrayOf(-5, 0, 0), longArrayOf(-10, 0, 0),
@@ -87,16 +135,17 @@ fun main() {
 
     val withoutChannels = affinities[AX, AX, AX, 0L]
 
-    val mutexWatershedDataset = "mutex-watershed"
-    val relabeledMutexWatershedDataset = "mutex-watershed-relabeled"
-    val mergedMutexWatershedDataset = "mutex-watershed-merged"
+    val mutexWatershedBase = threshold?.let { "mutex-watershed-threshold=$it" } ?: "mutex-watershed"
+    val mutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase"
+    val relabeledMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-relabeled"
+    val mergedMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-merged"
 
     val attributes = DatasetAttributes(Intervals.dimensionsAsLongArray(withoutChannels), blockSize, DataType.UINT64, GzipCompression())
 
     for (ds in arrayOf(mutexWatershedDataset, relabeledMutexWatershedDataset, mergedMutexWatershedDataset)) {
-        container.createDataset(ds, attributes)
-        container.setAttribute(ds, "resolution", resolution)
-        container.getAttribute(dataset, "offset", LongArray::class.java)?.let { container.setAttribute(ds, "offset", it) }
+        outputContainer.createDataset(ds, attributes)
+        outputContainer.setAttribute(ds, "resolution", resolution)
+        outputContainer.getAttribute(dataset, "offset", LongArray::class.java)?.let { outputContainer.setAttribute(ds, "offset", it) }
     }
 
     val blocks = Grids
@@ -111,10 +160,10 @@ fun main() {
 
         val task = Callable<Pair<FinalInterval, Long>> {
 
-            if (Intervals.isEmpty(Intervals.intersect(block, validInterval))) {
-//                println("Block $block outside valid data interval $validInterval. Not doing anything.")
-                return@Callable Pair(block, 0L)
-            }
+//            if (Intervals.isEmpty(Intervals.intersect(block, validInterval))) {
+////                println("Block $block outside valid data interval $validInterval. Not doing anything.")
+//                return@Callable Pair(block, 0L)
+//            }
 
             val minWithChannel = LongArray(3) { block.min(it) } + longArrayOf(affinities.min(3))
             val maxWithChannel = LongArray(3) { block.max(it) } + longArrayOf(affinities.max(3))
@@ -137,7 +186,7 @@ fun main() {
                     LoopBuilder
                             .setImages(affinitiesSlice, affinitiesCopySlice, maskFrom, maskTo, gliaMaskFrom, gliaMaskTo)
                             .forEachPixel(LoopBuilder.SixConsumer { s, t, mf, mt, gf, gt ->
-                                if (mf.integerLong == 0L || mt.integerLong == 0L)
+                                if (mf.integerLong != 1L || mt.integerLong != 1L)
                                     t.set(Float.NaN)
                                 else {
                                     val gwf = 1.0 - min(max(gf.realDouble, 0.0), 1.0)
@@ -186,7 +235,7 @@ fun main() {
                 }
             }
 
-            N5Utils.saveBlock(target, container, mutexWatershedDataset, attributes, blockOffset)
+            N5Utils.saveBlock(target, outputContainer, mutexWatershedDataset, attributes, blockOffset)
 
             Pair(block, index + 1)
         }
@@ -205,7 +254,7 @@ fun main() {
     totalCount += 1
 
     run {
-        val labels = N5Utils.open<UnsignedLongType>(container, mutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(outputContainer, mutexWatershedDataset)
 //    println("Relabeling to ensure non-overlap label ids")
         val futures2 = accumulatedCounts.map { (block, startIndex) ->
             val task = Callable<Any?> {
@@ -230,7 +279,7 @@ fun main() {
 
 //                println("${index - startIndex} ${idMapping.size()} ${counts.firstOrNull { it.first == block }?.second}")
                 if (anyNonZero)
-                    N5Utils.saveBlock(target, container, relabeledMutexWatershedDataset, attributes, blockOffset)
+                    N5Utils.saveBlock(target, outputContainer, relabeledMutexWatershedDataset, attributes, blockOffset)
                 null
             }
             es.submit(task)
@@ -240,7 +289,7 @@ fun main() {
 
     val uf = IntArrayUnionFind(totalCount.toInt() + 1)
     run {
-        val labels = N5Utils.open<UnsignedLongType>(container, relabeledMutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(outputContainer, relabeledMutexWatershedDataset)
 
         for (d in 0 until 3) {
             val futures3 = blocks.map { block ->
@@ -289,7 +338,7 @@ fun main() {
     }
 
     if (true) {
-        val labels = N5Utils.open<UnsignedLongType>(container, relabeledMutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(outputContainer, relabeledMutexWatershedDataset)
         labels.cache.invalidateAll()
         val futures4 = blocks.map { block ->
             val task = Callable<Any?> {
@@ -307,7 +356,7 @@ fun main() {
                 val blockOffset = LongArray(3) { block.min(it) / blockSize[it] }
 
                 if (anyNonZero)
-                    N5Utils.saveBlock(target, container, mergedMutexWatershedDataset, attributes, blockOffset)
+                    N5Utils.saveBlock(target, outputContainer, mergedMutexWatershedDataset, attributes, blockOffset)
                 null
             }
             es.submit(task)
@@ -315,7 +364,6 @@ fun main() {
         futures4.forEach { it.get() }
     }
 
-    es.shutdown()
 }
 
 private fun <T: RealType<T>> RandomAccessibleInterval<T>.anyZero(): Boolean {
@@ -344,4 +392,15 @@ private fun TLongLongMap.argMax(): Long {
         true
     }
     return argMax
+}
+
+private fun <T: NativeType<T>> N5Reader.loadWithOffset(dataset: String): RandomAccessibleInterval<T> {
+    val resolution = this.getAttribute(dataset, "resolution", DoubleArray::class.java) ?: DoubleArray(3) { 1.0 }
+    val offset = this.getAttribute(dataset, "offset", DoubleArray::class.java) ?: DoubleArray(3) { 0.0 }
+    val shiftInVoxels = offset.mapIndexed { index, o -> o / resolution[index] }.toDoubleArray()
+    val data = N5Utils.open<T>(this, dataset)
+    return if (shiftInVoxels.all { it == 0.0 })
+        data
+    else
+        Views.translate(data, *shiftInVoxels.map { it.toLong() }.toLongArray())
 }
