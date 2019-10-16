@@ -18,11 +18,11 @@ import net.imglib2.imklib.extensions.minAsLongs
 import net.imglib2.loops.LoopBuilder
 import net.imglib2.type.NativeType
 import net.imglib2.type.numeric.RealType
+import net.imglib2.type.numeric.integer.UnsignedByteType
 import net.imglib2.type.numeric.integer.UnsignedLongType
 import net.imglib2.type.numeric.real.FloatType
 import net.imglib2.util.ConstantUtils
 import net.imglib2.util.Intervals
-import net.imglib2.util.StopWatch
 import net.imglib2.util.Util
 import net.imglib2.view.Views
 import org.janelia.saalfeldlab.n5.*
@@ -41,47 +41,50 @@ import kotlin.time.measureTime
 
 @ExperimentalTime
 fun main() {
-    val samples = arrayOf("A", "B", "C", "0", "1", "2").reversedArray()
+    val samples = arrayOf("03").reversedArray()
     val setups = intArrayOf(0, 3)
-    val thresholds = arrayOf(null, 0.5, 0.3, 0.7, 0.1, 0.9)
+    val thresholds = arrayOf(null, 0.5, 0.7, 0.9)
     val numThreads = 40
     val es = Executors.newFixedThreadPool(numThreads)
+    val blocksPerTask = IntArray(3) { 1 }
+    val blockSize = IntArray(3) { 64 }
 
-    val overwriteExisting = false
-
-    for (setup in setups)
-        for (threshold in thresholds)
-            for (sample in samples) {
-                val time = measureTime { runMutexWatersheds(sample, setup, threshold, overwriteExisting, es) }
-                println("Ran mutex watersheds for sample=$sample setup=$setup threshold=$threshold in ${time.inSeconds} seconds")
-            }
-
-    es.shutdown()
+    try {
+        for (setup in setups)
+            for (threshold in thresholds)
+                for (sample in samples) {
+                    val time = measureTime { runMutexWatershedsLauritzen(sample, setup, threshold, es, blockSize, blocksPerTask) }
+                    println("Ran mutex watersheds for sample=$sample setup=$setup threshold=$threshold in ${time.inSeconds} seconds")
+                }
+    } finally {
+        es.shutdown()
+    }
 
 }
 
-fun runMutexWatersheds(
+fun runMutexWatershedsLauritzen(
     sample: String,
     setup: Int,
     threshold: Double?,
-    overwriteExisting: Boolean,
-    es: ExecutorService
+    es: ExecutorService,
+    blockSize: IntArray = IntArray(3) { 64 },
+    blocksPerTask: IntArray = IntArray(3) { 1 }
 ) {
     val datasetBasePath = "volumes/predictions/neuron_ids-unlabeled-unmask-background/$setup/500000"
 
-    val containerPath = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val containerPath = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/lauritzen/$sample/workspace.n5"
     val container     = N5FSWriter(containerPath)
     val dataset       = "$datasetBasePath/affinities"
 
-    val gliaMaskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val gliaMaskContainerPath: String? = null
     val gliaMaskContainer = N5FSReader(gliaMaskContainerPath ?: containerPath)
     val gliaMaskDataset: String? = "$datasetBasePath/glia"
 
-    val maskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val maskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/lauritzen/$sample/workspace.n5"
     val maskContainer = N5FSReader(maskContainerPath ?: containerPath)
-    val maskDataset: String? = "volumes/masks/prediction-mask"
+    val maskDataset: String? = "filtered/masks/qip"
 
-    val outputContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val outputContainerPath: String? = null
     val outputContainer = N5FSWriter(outputContainerPath ?: containerPath)
 
     val affinities= N5Utils.open<FloatType>(container, dataset)
@@ -97,7 +100,7 @@ fun runMutexWatersheds(
         ?: ConstantUtils.constantRandomAccessible(FloatType(0.0f), 3)
     val mask = maskDataset
         ?.takeIf { maskContainer.datasetExists(it) }
-        ?.let { maskContainer.loadWithOffset<UnsignedLongType>(maskDataset) }
+        ?.let { maskContainer.loadWithOffset<UnsignedByteType>(maskDataset) }
         ?.let{ Views.extendZero(it) }
         ?: run {
             val marginLower = intArrayOf(128, 128, 128)
@@ -107,15 +110,13 @@ fun runMutexWatersheds(
             val validInterval = FinalInterval(validMin, validMax)
             Views.extendZero(
                 ConstantUtils.constantRandomAccessibleInterval(
-                    UnsignedLongType(1),
+                    UnsignedByteType(1),
                     validInterval.numDimensions(),
                     validInterval
                 )
             )
         }
     val resolution = doubleArrayOf(108.0, 108.0, 120.0)
-    val blockSize = IntArray(3) {64}
-    val blocksPerTask = intArrayOf(1, 1, 1)
     val taskSize = IntArray(3) {blockSize[it] * blocksPerTask[it]}
 
     val offsets       = arrayOf(
@@ -143,9 +144,7 @@ fun runMutexWatersheds(
     val mutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase"
     val relabeledMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-relabeled"
     val mergedMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-merged"
-    if (outputContainer.exists(mergedMutexWatershedDataset)
-        && outputContainer.getAttribute(mergedMutexWatershedDataset, "completedSuccessfully", Boolean::class.java) == true
-        && !overwriteExisting) {
+    if (outputContainer.exists(mergedMutexWatershedDataset) && outputContainer.getAttribute(mergedMutexWatershedDataset, "completedSuccessfully", Boolean::class.java) == true) {
         println("Already successfully completed mutex watersheds for dataset $mergedMutexWatershedDataset in container $outputContainer -- skipping.")
         return
     }
@@ -185,7 +184,6 @@ fun runMutexWatersheds(
             val target = ArrayImgs.unsignedLongs(*Intervals.dimensionsAsLongArray(block))
             val maskFrom = Views.interval(mask, block)
             val gliaMaskFrom = Views.interval(gliaMask, block)
-            val sw = StopWatch.createAndStart()
             val affinitiesBlock: RandomAccessibleInterval<FloatType> = if (maskFrom.anyZero() || gliaMaskFrom.anyNotOne()) {
 //                println("Copying affinities and adjusting for mask and glia mask")
                 val affinitiesCopy = ArrayImgs.floats(*Intervals.dimensionsAsLongArray(intervalWithChannel))
@@ -202,35 +200,30 @@ fun runMutexWatersheds(
                                 else {
                                     val gwf = 1.0 - min(max(gf.realDouble, 0.0), 1.0)
                                     val gwt = 1.0 - min(max(gt.realDouble, 0.0), 1.0)
-                                    // ignore edges entirely inside glia
-                                    if (gwf < 0.5 && gwt < 0.5)
-                                        t.set(Float.NaN)
-                                    else
-                                        t.setReal(s.realDouble * gwf * gwt)
+                                    t.setReal(s.realDouble * gwf * gwt)
                                 }
                             })
                 }
                 affinitiesCopy
             } else
                 Views.zeroMin(affinities[intervalWithChannel])
-            sw.stop()
-//            println("Prepared affinities in ${StopWatch.secondsToString(sw.seconds())}")
-            val nextId = if (threshold === null)
-                MutexWatershed.computeMutexWatershedClustering(
+            if (threshold === null) {
+                val nextId = MutexWatershed.computeMutexWatershedClustering(
                     affinities = affinitiesBlock,
                     target = target,
                     offsets = offsets.toTypedArray(),
                     edgeProbabilities = probabilities,
                     attractiveEdges = offsets.map { o -> o.map { it * it }.sum() <= 1L }.toBooleanArray(),
                     random = DoubleSupplier { rng.nextDouble() })
-            else
-                MutexWatershed.computeMutexWatershedClustering(
+            } else {
+                val nextId = MutexWatershed.computeMutexWatershedClustering(
                     affinities = affinitiesBlock,
                     target = target,
                     offsets = offsets.toTypedArray(),
                     edgeProbabilities = probabilities,
                     threshold = threshold,
                     random = DoubleSupplier { rng.nextDouble() })
+            }
 
 //            println("Saving mutex watershed in dataset `mutex-watershed'. Max id=${nextId - 1} for block $block")
 
