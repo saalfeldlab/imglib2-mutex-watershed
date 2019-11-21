@@ -8,6 +8,8 @@ import net.imglib2.Interval
 import net.imglib2.RandomAccessibleInterval
 import net.imglib2.algorithm.util.Grids
 import net.imglib2.algorithm.util.unionfind.IntArrayUnionFind
+import net.imglib2.converter.Converter
+import net.imglib2.converter.Converters
 import net.imglib2.img.array.ArrayImgs
 import net.imglib2.imklib.extensions.AX
 import net.imglib2.imklib.extensions.flatIterable
@@ -17,6 +19,7 @@ import net.imglib2.imklib.extensions.maxAsLongs
 import net.imglib2.imklib.extensions.minAsLongs
 import net.imglib2.loops.LoopBuilder
 import net.imglib2.type.NativeType
+import net.imglib2.type.logic.BitType
 import net.imglib2.type.numeric.RealType
 import net.imglib2.type.numeric.integer.UnsignedLongType
 import net.imglib2.type.numeric.real.FloatType
@@ -44,7 +47,7 @@ fun main() {
     val samples = arrayOf("A", "B", "C", "0", "1", "2").reversedArray()
     val setups = intArrayOf(0, 3)
     val thresholds = arrayOf(null, 0.5, 0.3, 0.7, 0.1, 0.9)
-    val numThreads = 40
+    val numThreads = 47
     val es = Executors.newFixedThreadPool(numThreads)
 
     val overwriteExisting = false
@@ -54,11 +57,38 @@ fun main() {
             for (sample in samples) {
                 val time = measureTime { runMutexWatersheds(sample, setup, threshold, overwriteExisting, es) }
                 println("Ran mutex watersheds for sample=$sample setup=$setup threshold=$threshold in ${time.inSeconds} seconds")
+                val gliaTime = measureTime { writeGlia(CremiData(sample, setup, 500000, threshold), es, true) }
+                println("Wrote glia for sample=$sample setup=$setup threshold=$threshold in ${gliaTime.inSeconds} seconds")
             }
 
     es.shutdown()
 
 }
+
+private class CremiData(
+    private val sample: String,
+    private val setup: Int,
+    private val iteration: Int,
+    private val threshold: Double?) {
+    val datasetBasePath = "volumes/predictions/neuron_ids-unlabeled-unmask-background/$setup/$iteration"
+    val containerPath = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
+    val container = N5FSWriter(containerPath)
+    val gliaMaskContainer = N5FSReader(containerPath)
+    val gliaMaskDataset = "$datasetBasePath/glia"
+    val dataset = "$datasetBasePath/affinities"
+    val maskDataset = "volumes/masks/prediction-mask"
+    val maskContainer = N5FSReader(containerPath)
+    val mutexWatershedBase = threshold?.let { "mutex-watershed-threshold=$it" } ?: "mutex-watershed"
+    val mutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase"
+    val relabeledMutexWatershedDataset = "$mutexWatershedDataset-relabeled"
+    val mergedMutexWatershedDataset = "$mutexWatershedDataset-merged"
+    val mergedMutexWatershedDatasetWithGlia = "$mergedMutexWatershedDataset-with-glia"
+    val outputContainer = N5FSWriter(containerPath)
+}
+private val resolution = doubleArrayOf(108.0, 108.0, 120.0)
+private val blockSize = IntArray(3) {64}
+private val blocksPerTask = intArrayOf(1, 1, 1)
+private val taskSize = IntArray(3) {blockSize[it] * blocksPerTask[it]}
 
 fun runMutexWatersheds(
     sample: String,
@@ -67,37 +97,18 @@ fun runMutexWatersheds(
     overwriteExisting: Boolean,
     es: ExecutorService
 ) {
-    val datasetBasePath = "volumes/predictions/neuron_ids-unlabeled-unmask-background/$setup/500000"
+    val cremiData = CremiData(sample, setup, 500000, threshold)
 
-    val containerPath = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
-    val container     = N5FSWriter(containerPath)
-    val dataset       = "$datasetBasePath/affinities"
-
-    val gliaMaskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
-    val gliaMaskContainer = N5FSReader(gliaMaskContainerPath ?: containerPath)
-    val gliaMaskDataset: String? = "$datasetBasePath/glia"
-
-    val maskContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
-    val maskContainer = N5FSReader(maskContainerPath ?: containerPath)
-    val maskDataset: String? = "volumes/masks/prediction-mask"
-
-    val outputContainerPath: String? = "/nrs/saalfeld/hanslovskyp/experiments/quasi-isotropic-predictions/affinities-glia/neuron_ids-unlabeled-unmask-background/predictions/CREMI/sample_$sample.n5"
-    val outputContainer = N5FSWriter(outputContainerPath ?: containerPath)
-
-    val affinities= N5Utils.open<FloatType>(container, dataset)
-//             unccomment the following for subset of image:
-//            .let {
-//                it[Intervals.createMinMax(0L, 0L, 0L, it.min(3), 768L, 768L, 512L, it.max(3))]
-//            }
+    val affinities= N5Utils.open<FloatType>(cremiData.container, cremiData.dataset)
     // TODO load actual mask and glia mask
-    val gliaMask = gliaMaskDataset
-        ?.takeIf { gliaMaskContainer.datasetExists(it) }
-        ?.let { gliaMaskContainer.loadWithOffset<FloatType>(gliaMaskDataset) }
+    val gliaMask = cremiData.gliaMaskDataset
+        ?.takeIf { cremiData.gliaMaskContainer.datasetExists(it) }
+        ?.let { cremiData.gliaMaskContainer.loadWithOffset<FloatType>(cremiData.gliaMaskDataset) }
         ?.let { Views.extendZero(it) }
         ?: ConstantUtils.constantRandomAccessible(FloatType(0.0f), 3)
-    val mask = maskDataset
-        ?.takeIf { maskContainer.datasetExists(it) }
-        ?.let { maskContainer.loadWithOffset<UnsignedLongType>(maskDataset) }
+    val mask = cremiData.maskDataset
+        ?.takeIf { cremiData.maskContainer.datasetExists(it) }
+        ?.let { cremiData.maskContainer.loadWithOffset<UnsignedLongType>(cremiData.maskDataset) }
         ?.let{ Views.extendZero(it) }
         ?: run {
             val marginLower = intArrayOf(128, 128, 128)
@@ -113,10 +124,6 @@ fun runMutexWatersheds(
                 )
             )
         }
-    val resolution = doubleArrayOf(108.0, 108.0, 120.0)
-    val blockSize = IntArray(3) {64}
-    val blocksPerTask = intArrayOf(1, 1, 1)
-    val taskSize = IntArray(3) {blockSize[it] * blocksPerTask[it]}
 
     val offsets       = arrayOf(
         longArrayOf(-1, 0, 0), longArrayOf(-2, 0, 0), longArrayOf(-5, 0, 0), longArrayOf(-10, 0, 0),
@@ -139,23 +146,22 @@ fun runMutexWatersheds(
 
     val withoutChannels = affinities[AX, AX, AX, 0L]
 
-    val mutexWatershedBase = threshold?.let { "mutex-watershed-threshold=$it" } ?: "mutex-watershed"
-    val mutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase"
-    val relabeledMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-relabeled"
-    val mergedMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-merged"
-    if (outputContainer.exists(mergedMutexWatershedDataset)
-        && outputContainer.getAttribute(mergedMutexWatershedDataset, "completedSuccessfully", Boolean::class.java) == true
+    if (cremiData.outputContainer.exists(cremiData.mergedMutexWatershedDataset)
+        && cremiData.outputContainer.getAttribute(cremiData.mergedMutexWatershedDataset, "completedSuccessfully", Boolean::class.java) == true
         && !overwriteExisting) {
-        println("Already successfully completed mutex watersheds for dataset $mergedMutexWatershedDataset in container $outputContainer -- skipping.")
+        println("Already successfully completed mutex watersheds for dataset ${cremiData.mergedMutexWatershedDataset} in container ${cremiData.outputContainer} -- skipping.")
         return
     }
 
     val attributes = DatasetAttributes(Intervals.dimensionsAsLongArray(withoutChannels), blockSize, DataType.UINT64, GzipCompression())
 
-    for (ds in arrayOf(mutexWatershedDataset, relabeledMutexWatershedDataset, mergedMutexWatershedDataset)) {
-        outputContainer.createDataset(ds, attributes)
-        outputContainer.setAttribute(ds, "resolution", resolution)
-        outputContainer.getAttribute(dataset, "offset", LongArray::class.java)?.let { outputContainer.setAttribute(ds, "offset", it) }
+    for (ds in arrayOf(cremiData.mutexWatershedDataset, cremiData.relabeledMutexWatershedDataset, cremiData.mergedMutexWatershedDataset)) {
+        cremiData.outputContainer.createDataset(ds, attributes)
+        cremiData.outputContainer.setAttribute(ds, "resolution", resolution)
+        cremiData
+            .container
+            .getAttribute(cremiData.dataset, "offset", DoubleArray::class.java)
+            ?.let { cremiData.outputContainer.setAttribute(ds, "offset", it) }
     }
 
     val blocks = Grids
@@ -259,7 +265,7 @@ fun runMutexWatersheds(
                 }
             }
 
-            N5Utils.saveBlock(target, outputContainer, mutexWatershedDataset, attributes, blockOffset)
+            N5Utils.saveBlock(target, cremiData.outputContainer, cremiData.mutexWatershedDataset, attributes, blockOffset)
 
             Pair(block, index + 1)
         }
@@ -278,7 +284,7 @@ fun runMutexWatersheds(
     totalCount += 1
 
     run {
-        val labels = N5Utils.open<UnsignedLongType>(outputContainer, mutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(cremiData.outputContainer, cremiData.mutexWatershedDataset)
 //    println("Relabeling to ensure non-overlap label ids")
         val futures2 = accumulatedCounts.map { (block, startIndex) ->
             val task = Callable<Any?> {
@@ -303,7 +309,7 @@ fun runMutexWatersheds(
 
 //                println("${index - startIndex} ${idMapping.size()} ${counts.firstOrNull { it.first == block }?.second}")
                 if (anyNonZero)
-                    N5Utils.saveBlock(target, outputContainer, relabeledMutexWatershedDataset, attributes, blockOffset)
+                    N5Utils.saveBlock(target, cremiData.outputContainer, cremiData.relabeledMutexWatershedDataset, attributes, blockOffset)
                 null
             }
             es.submit(task)
@@ -313,7 +319,7 @@ fun runMutexWatersheds(
 
     val uf = IntArrayUnionFind(totalCount.toInt() + 1)
     run {
-        val labels = N5Utils.open<UnsignedLongType>(outputContainer, relabeledMutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(cremiData.outputContainer, cremiData.relabeledMutexWatershedDataset)
 
         for (d in 0 until 3) {
             val futures3 = blocks.map { block ->
@@ -362,7 +368,7 @@ fun runMutexWatersheds(
     }
 
     if (true) {
-        val labels = N5Utils.open<UnsignedLongType>(outputContainer, relabeledMutexWatershedDataset)
+        val labels = N5Utils.open<UnsignedLongType>(cremiData.outputContainer, cremiData.relabeledMutexWatershedDataset)
         labels.cache.invalidateAll()
         val futures4 = blocks.map { block ->
             val task = Callable<Any?> {
@@ -380,7 +386,7 @@ fun runMutexWatersheds(
                 val blockOffset = LongArray(3) { block.min(it) / blockSize[it] }
 
                 if (anyNonZero)
-                    N5Utils.saveBlock(target, outputContainer, mergedMutexWatershedDataset, attributes, blockOffset)
+                    N5Utils.saveBlock(target, cremiData.outputContainer, cremiData.mergedMutexWatershedDataset, attributes, blockOffset)
                 null
             }
             es.submit(task)
@@ -388,7 +394,86 @@ fun runMutexWatersheds(
         futures4.forEach { it.get() }
     }
 
-    outputContainer.setAttribute(mergedMutexWatershedDataset, "completedSuccessfully", true)
+    cremiData.outputContainer.setAttribute(cremiData.mergedMutexWatershedDataset, "completedSuccessfully", true)
+
+}
+
+private fun writeGlia(
+    cremiData: CremiData,
+    es: ExecutorService,
+    overwriteExisting: Boolean,
+    gliaId: Long = -10L) {
+
+    if (cremiData.outputContainer.exists(cremiData.mergedMutexWatershedDatasetWithGlia)
+        && cremiData.outputContainer.getAttribute(cremiData.mergedMutexWatershedDatasetWithGlia, "completedSuccessfully", Boolean::class.java) == true
+        && !overwriteExisting) {
+        println("Already successfully adding glia to mutex watersheds for dataset ${cremiData.mergedMutexWatershedDatasetWithGlia} in container ${cremiData.outputContainer} -- skipping.")
+        return
+    }
+
+    val gliaMask = cremiData
+        .gliaMaskDataset
+        .takeIf { cremiData.gliaMaskContainer.datasetExists(it) }
+        ?.let { cremiData.gliaMaskContainer.loadWithOffset<FloatType>(cremiData.gliaMaskDataset) }
+        ?.let { Views.extendZero(it) }
+        ?.let { Converters.convert(it, Converter<FloatType, BitType> { s, t -> t.set(s.realDouble > 0.5) }, BitType()) }
+    if (gliaMask === null) {
+        println("No glia mask provided")
+        return
+    }
+    val merged = cremiData
+        .mergedMutexWatershedDataset
+        .takeIf { cremiData.outputContainer.datasetExists(it) }
+        ?.let { cremiData.outputContainer.loadWithOffset<UnsignedLongType>(cremiData.mergedMutexWatershedDataset) }
+
+    if (merged === null) {
+        println("No merged mutex watershed dataset provided")
+        return
+    }
+
+    val attributes = DatasetAttributes(Intervals.dimensionsAsLongArray(merged), blockSize, DataType.UINT64, GzipCompression())
+    cremiData.outputContainer.createDataset(cremiData.mergedMutexWatershedDatasetWithGlia, attributes)
+    cremiData.outputContainer.setAttribute(cremiData.mergedMutexWatershedDatasetWithGlia, "resolution", resolution)
+    cremiData
+        .container
+        .getAttribute(cremiData.dataset, "offset", DoubleArray::class.java)
+        ?.let { cremiData.outputContainer.setAttribute(cremiData.mergedMutexWatershedDatasetWithGlia, "offset", it) }
+
+    val gliaLabel = UnsignedLongType(gliaId)
+
+    val blocks = Grids.collectAllContainedIntervalsWithGridPositions(
+        Intervals.dimensionsAsLongArray(merged),
+        blockSize)
+    val futures = blocks.map {
+        val task = Callable {
+            val gliaBlock = Views.interval(gliaMask, it.a)
+            val mergedBlock = Views.interval(merged, it.a)
+            val target = ArrayImgs.unsignedLongs(*Intervals.dimensionsAsLongArray(it.a))
+
+            var anyNonZero = false
+
+            LoopBuilder
+                .setImages(gliaBlock, mergedBlock, target)
+                .forEachPixel(LoopBuilder.TriConsumer { g, m, t ->
+                    t.set(if (g.get()) gliaLabel else m)
+                    anyNonZero = anyNonZero || t.integerLong != 0L
+                })
+
+            if (anyNonZero) {
+                N5Utils.saveBlock(
+                    target,
+                    cremiData.outputContainer,
+                    cremiData.mergedMutexWatershedDatasetWithGlia,
+                    attributes,
+                    it.b
+                )
+            }
+        }
+        es.submit(task)
+    }
+    futures.forEach { it.get() }
+    cremiData.outputContainer.setAttribute(cremiData.mergedMutexWatershedDatasetWithGlia, "completedSuccessfully", true)
+
 
 }
 

@@ -31,6 +31,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.function.BiConsumer
+import java.util.function.DoublePredicate
 import java.util.function.DoubleSupplier
 import kotlin.math.max
 import kotlin.math.min
@@ -43,17 +44,25 @@ import kotlin.time.measureTime
 fun main() {
     val samples = arrayOf("03").reversedArray()
     val setups = intArrayOf(0, 3)
-    val thresholds = arrayOf(null, 0.5, 0.7, 0.9)
+    val thresholds = arrayOf(0.5, null, 0.7, 0.9)
     val numThreads = 40
     val es = Executors.newFixedThreadPool(numThreads)
     val blocksPerTask = IntArray(3) { 1 }
     val blockSize = IntArray(3) { 64 }
+    val useOnlyNearestNeighborForAttractive = true
 
     try {
         for (setup in setups)
             for (threshold in thresholds)
                 for (sample in samples) {
-                    val time = measureTime { runMutexWatershedsLauritzen(sample, setup, threshold, es, blockSize, blocksPerTask) }
+                    val time = measureTime { runMutexWatershedsLauritzen(
+                        sample,
+                        setup,
+                        threshold,
+                        useOnlyNearestNeighborForAttractive,
+                        es,
+                        blockSize,
+                        blocksPerTask) }
                     println("Ran mutex watersheds for sample=$sample setup=$setup threshold=$threshold in ${time.inSeconds} seconds")
                 }
     } finally {
@@ -66,6 +75,7 @@ fun runMutexWatershedsLauritzen(
     sample: String,
     setup: Int,
     threshold: Double?,
+    useOnlyNearestNeighborForAttractive: Boolean,
     es: ExecutorService,
     blockSize: IntArray = IntArray(3) { 64 },
     blocksPerTask: IntArray = IntArray(3) { 1 }
@@ -140,7 +150,7 @@ fun runMutexWatershedsLauritzen(
 
     val withoutChannels = affinities[AX, AX, AX, 0L]
 
-    val mutexWatershedBase = threshold?.let { "mutex-watershed-threshold=$it" } ?: "mutex-watershed"
+    val mutexWatershedBase = threshold?.let { if (useOnlyNearestNeighborForAttractive) "mutex-watershed-threshold=$it-only-nn-attractive" else "mutex-watershed-threshold=$it" } ?: "mutex-watershed"
     val mutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase"
     val relabeledMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-relabeled"
     val mergedMutexWatershedDataset = "$datasetBasePath/$mutexWatershedBase-merged"
@@ -216,13 +226,30 @@ fun runMutexWatershedsLauritzen(
                     attractiveEdges = offsets.map { o -> o.map { it * it }.sum() <= 1L }.toBooleanArray(),
                     random = DoubleSupplier { rng.nextDouble() })
             } else {
-                val nextId = MutexWatershed.computeMutexWatershedClustering(
-                    affinities = affinitiesBlock,
-                    target = target,
-                    offsets = offsets.toTypedArray(),
-                    edgeProbabilities = probabilities,
-                    threshold = threshold,
-                    random = DoubleSupplier { rng.nextDouble() })
+                if (useOnlyNearestNeighborForAttractive) {
+                    val isAttractiveOffset = IsAttractiveIndex { index ->
+                        val isNearest = offsets[index].map { it*it }.sum() <= 1L
+                        if (isNearest) {
+                            DoublePredicate { it >= threshold }
+                        } else
+                            DoublePredicate { false }
+                    }
+                    val nextId = MutexWatershed.computeMutexWatershedClustering(
+                        affinities = affinitiesBlock,
+                        target = target,
+                        offsets = offsets.toTypedArray(),
+                        isAttractiveOffsetGenerator = isAttractiveOffset,
+                        edgeProbabilityFromOffset = EdgeProbabilityFromIndex {  probabilities[it] },
+                        random = DoubleSupplier { rng.nextDouble() })
+                } else {
+                    val nextId = MutexWatershed.computeMutexWatershedClustering(
+                        affinities = affinitiesBlock,
+                        target = target,
+                        offsets = offsets.toTypedArray(),
+                        edgeProbabilities = probabilities,
+                        threshold = threshold,
+                        random = DoubleSupplier { rng.nextDouble() })
+                }
             }
 
 //            println("Saving mutex watershed in dataset `mutex-watershed'. Max id=${nextId - 1} for block $block")
