@@ -10,7 +10,7 @@
 
 	<groupId>org.janelia.saalfeldlab</groupId>
 	<artifactId>imglib2-mutex-watershed</artifactId>
-	<version>0.1.2-SNAPSHOT</version>
+	<version>0.1.3-SNAPSHOT</version>
 
 	<name>ImgLib2 Mutex Watersheds</name>
 	<description>ImgLib2 Implementation of ImgLib2 mutex watersheds</description>
